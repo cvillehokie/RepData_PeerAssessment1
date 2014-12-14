@@ -7,19 +7,161 @@ output:
 
 
 ## Loading and preprocessing the data
+```{r, warning=FALSE}
+library(lubridate)
 
+if(!file.exists('activity.csv'))
+    unzip('activity.zip')
+myData <- read.csv("activity.csv")
 
+#format the date
+myData$date <- as.Date(myData$date, format="%Y-%m-%d")
+
+#Create date/time column*-+
+
+myData$date.time <- as.POSIXct(
+    paste(myData$date, formatC(myData$interval/100, 2, format = "f")), 
+    format = "%Y-%m-%d %H.%M", 
+    tz = "GMT")
+
+#Format the time
+myData$time <- format(myData$date.time, format = "%H:%M:%S")
+myData$time <- as.POSIXct(myData$time, format = "%H:%M:%S")
+
+myData$interval <- as.factor(myData$interval)
+
+days <- as.factor(myData$date)
+
+intervals <- as.numeric(levels(myData$interval))
+
+```
 
 ## What is mean total number of steps taken per day?
+Calculate the mean and median number of steps taken per day
+```{r, warning=FALSE}
+numSteps <- tapply(myData$steps, myData$date, sum, na.rm=TRUE)
 
+mean(numSteps)
+median(numSteps)
 
+```
+Let's show a histogram of the total number of steps taken each day
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+
+qplot(
+    numSteps, 
+    xlab='Total Steps Each Day', 
+    ylab='Frequency')
+```
 
 ## What is the average daily activity pattern?
 
+Let's make a time series plot of the 5 minute intervals (x axis) and the average number of steps taken, averaged across all days (y axis)
+
+```{r}
+#calculate the mean steps for each interval
+avgSteps <- tapply(myData$steps, myData$time, mean, na.rm=TRUE)
+
+#create date frame with mean steps
+activityPattern <- data.frame(time=as.POSIXct(names(avgSteps)),
+                            avgSteps=avgSteps)
+
+myPlot <- ggplot(
+        activityPattern,
+        aes(intervals, avgSteps),
+    )
+myPlot + 
+    geom_line(colour="red") + 
+    ggtitle("Time Series Plot of the 5m Interval and the avg No. Steps Taken") +
+    xlab("5 Min Intervals") +
+    ylab("Avg Num Steps Taken")
+
+```
+
+Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+```{r}
+maxSteps <- which.max(activityPattern$avgSteps)
+
+format(
+    activityPattern[maxSteps, 'time'], 
+    format = "%H:%M"
+    )
+```
 
 
 ## Imputing missing values
 
+Find missing values:
+```{r}
+#find rows of missing values
+isNAs <- is.na(myData)
+
+```
+
+There are `r sum(isNAs)` missing values in the dataset (total number of rows with "NAs")
+
+Fill in missing values; we'll use the 5 minute interval mean to keep the data simliar
+```{r}
+#create a copy to preserve original
+cleanData <- myData
+
+cleanData$steps[is.na(cleanData$steps)] <- 
+    tapply(cleanData$steps, cleanData$interval, mean, na.rm = TRUE)
+
+#compare the two
+summary(myData)
+summary(cleanData)
+
+```
+
+Histogram of the new Data Set:
+```{r, warning=FALSE, message=FALSE}
+cleanNumSteps <- tapply(cleanData$steps, cleanData$date, sum)
+
+qplot(
+    cleanNumSteps, 
+    xlab='Total Steps Each Day', 
+    ylab='Frequency')
+
+```
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+Create a new factor variable in the dataset with two levels - "weekday" and "weekend" indicating whether a given date is a weekday or weekend day.
+```{r}
+#add Day to our cleanData
+cleanData$Day <- weekdays(as.Date(as.character(cleanData$date)))
+
+#add weekend value to our cleanData
+cleanData$DayType <- as.factor(c("Weekend","Weekday"))
+
+weekendDays <- cleanData$Day == "Saturday" | cleanData$Day == "Sunday"
+
+cleanData$DayType[weekendDays] = "Weekend"
+cleanData$DayType[!weekendDays] = "Weekday"
+
+
+cleanAvgSteps <- tapply(cleanData$steps, 
+                        interaction(cleanData$time, cleanData$DayType),
+                        mean)
+
+cleanPattern <- data.frame(time=as.POSIXct(names(cleanAvgSteps)), 
+                           cleanAvgSteps = cleanAvgSteps, 
+                           DayType = as.factor(c("Weekend","Weekday")))
+```
+
+Make a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis).
+
+```{r, warning=FALSE}
+library(scales)
+
+ggplot(cleanPattern, aes(time, cleanAvgSteps)) +
+    geom_line(color="blue") +
+    xlab("Daily 5 minute Intervals") +
+    ylab("Average Number of Steps") +    
+    scale_x_datetime(labels = date_format(format =' %H:%M')) +
+    facet_grid(. ~ DayType)
+
+```
